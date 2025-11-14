@@ -130,9 +130,12 @@
         modal.innerHTML = `
             <h2>导入自选股</h2>
             <label for="group-selector">选择分组:</label>
-            <select id="group-selector">
-                <option value="">加载中...</option>
-            </select>
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <select id="group-selector" style="flex: 1;">
+                    <option value="">加载中...</option>
+                </select>
+                <button id="refresh-groups-btn" class="stock-import-btn" style="background-color: #2196F3; padding: 8px 12px;">刷新</button>
+            </div>
 
             <label for="stock-list">股票代码列表 (每行一个):</label>
             <textarea id="stock-list" placeholder="例如:
@@ -159,6 +162,7 @@
         // 绑定事件
         document.getElementById('import-cancel-btn').addEventListener('click', hideModal);
         document.getElementById('import-confirm-btn').addEventListener('click', importStocks);
+        document.getElementById('refresh-groups-btn').addEventListener('click', loadGroups);
         modal.addEventListener('click', (e) => e.stopPropagation());
 
         // 加载分组列表
@@ -174,6 +178,9 @@
             createModal();
             modal = document.getElementById('stock-import-modal');
             overlay = document.getElementById('stock-import-overlay');
+        } else {
+            // 如果模态框已存在，自动刷新分组列表
+            loadGroups();
         }
 
         overlay.style.display = 'block';
