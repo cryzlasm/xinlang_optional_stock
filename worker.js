@@ -358,8 +358,85 @@
         let failed = 0;
         const total = stockCodes.length;
         const failedStocks = [];
+        let currentIndex = 0;
+        const concurrency = 5; // 并发数
+        let activeRequests = 0;
 
-        const importNext = () => {
+        // 导入单只股票
+        const importStock = (stockCode) => {
+            // 转换股票代码格式
+            const scode = convertStockCode(stockCode);
+
+            // 生成随机回调函数名
+            const callbackName = 'jQuery' + Math.floor(Math.random() * 1000000000000000) + '_' + Date.now();
+
+            // 构建API URL
+            const url = `https://watchlist.finance.sina.com.cn/portfolio/api/openapi.php/HoldV2Service.appendSymbol?callback=${callbackName}&scode=${encodeURIComponent(scode)}&source=pc_mzx&pid=${groupId}`;
+
+            // 使用GM_xmlhttpRequest发送请求
+            return new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: url,
+                    headers: {
+                        'accept': '*/*',
+                        'accept-language': 'zh-CN,zh;q=0.9',
+                        'sec-ch-ua': '"Not_A Brand";v="99", "Chromium";v="142"',
+                        'sec-ch-ua-mobile': '?0',
+                        'sec-ch-ua-platform': '"macOS"',
+                        'sec-fetch-dest': 'script',
+                        'sec-fetch-mode': 'no-cors',
+                        'sec-fetch-site': 'same-site',
+                        'referer': 'https://i.finance.sina.com.cn/'
+                    },
+                    onload: function(response) {
+                        try {
+                            // 提取JSON数据
+                            const jsonData = response.responseText.replace(/\/\*.*?\*\//g, '').trim();
+                            const jsonStart = jsonData.indexOf('(');
+                            const jsonEnd = jsonData.lastIndexOf(')');
+
+                            if (jsonStart === -1 || jsonEnd === -1) {
+                                throw new Error('无效的响应格式: ' + jsonData.substring(0, 100));
+                            }
+
+                            const jsonString = jsonData.substring(jsonStart + 1, jsonEnd);
+                            const data = JSON.parse(jsonString);
+
+                            // 检查是否有错误
+                            if (data.result && data.result.status && data.result.status.code === 0) {
+                                imported++;
+                                resolve({ success: true, stockCode });
+                            } else {
+                                failed++;
+                                const errorMsg = data.result && data.result.status ? data.result.status.msg : '未知错误';
+                                resolve({ success: false, stockCode, error: errorMsg });
+                            }
+                        } catch (error) {
+                            console.error('导入股票失败:', stockCode, error);
+                            failed++;
+                            resolve({ success: false, stockCode, error: '解析错误: ' + error.message });
+                        }
+                    },
+                    onerror: function(error) {
+                        console.error('导入股票失败:', stockCode, error);
+                        failed++;
+                        resolve({ success: false, stockCode, error: '网络错误: ' + error.statusText });
+                    }
+                });
+            });
+        };
+
+        // 更新进度显示
+        const updateProgressDisplay = () => {
+            const processed = imported + failed;
+            updateProgress((processed / total) * 100, `正在导入 ${processed}/${total} (${imported}成功, ${failed}失败)`);
+        };
+
+        // 检查是否完成
+        const checkCompletion = () => {
+            updateProgressDisplay();
+
             if (imported + failed >= total) {
                 if (failed === 0) {
                     updateProgress(100, `导入完成! 成功导入 ${imported} 只股票`);
@@ -371,79 +448,39 @@
                         showError(`导入完成! 成功: ${imported}, 失败: ${failed}. 失败股票: ${failedList}`);
                     }
                 }
-                return;
+                return true;
             }
-
-            const stockCode = stockCodes[imported + failed];
-            updateProgress(((imported + failed) / total) * 100, `正在导入: ${stockCode} (${imported + failed + 1}/${total})`);
-
-            // 转换股票代码格式
-            const scode = convertStockCode(stockCode);
-
-            // 生成随机回调函数名
-            const callbackName = 'jQuery' + Math.floor(Math.random() * 1000000000000000) + '_' + Date.now();
-
-            // 构建API URL
-            const url = `https://watchlist.finance.sina.com.cn/portfolio/api/openapi.php/HoldV2Service.appendSymbol?callback=${callbackName}&scode=${encodeURIComponent(scode)}&source=pc_mzx&pid=${groupId}`;
-
-            // 使用GM_xmlhttpRequest发送请求
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url: url,
-                headers: {
-                    'accept': '*/*',
-                    'accept-language': 'zh-CN,zh;q=0.9',
-                    'sec-ch-ua': '"Not_A Brand";v="99", "Chromium";v="142"',
-                    'sec-ch-ua-mobile': '?0',
-                    'sec-ch-ua-platform': '"macOS"',
-                    'sec-fetch-dest': 'script',
-                    'sec-fetch-mode': 'no-cors',
-                    'sec-fetch-site': 'same-site',
-                    'referer': 'https://i.finance.sina.com.cn/'
-                },
-                onload: function(response) {
-                    try {
-                        // 提取JSON数据
-                        const jsonData = response.responseText.replace(/\/\*.*?\*\//g, '').trim();
-                        const jsonStart = jsonData.indexOf('(');
-                        const jsonEnd = jsonData.lastIndexOf(')');
-
-                        if (jsonStart === -1 || jsonEnd === -1) {
-                            throw new Error('无效的响应格式: ' + jsonData.substring(0, 100));
-                        }
-
-                        const jsonString = jsonData.substring(jsonStart + 1, jsonEnd);
-                        const data = JSON.parse(jsonString);
-
-                        // 检查是否有错误
-                        if (data.result && data.result.status && data.result.status.code === 0) {
-                            imported++;
-                        } else {
-                            failed++;
-                            const errorMsg = data.result && data.result.status ? data.result.status.msg : '未知错误';
-                            failedStocks.push(stockCode + '(' + errorMsg + ')');
-                        }
-                    } catch (error) {
-                        console.error('导入股票失败:', stockCode, error);
-                        failed++;
-                        failedStocks.push(stockCode + '(解析错误: ' + error.message + ')');
-                    }
-
-                    // 继续导入下一个
-                    setTimeout(importNext, 200); // 稍微延时以避免请求过快
-                },
-                onerror: function(error) {
-                    console.error('导入股票失败:', stockCode, error);
-                    failed++;
-                    failedStocks.push(stockCode + '(网络错误: ' + error.statusText + ')');
-
-                    // 继续导入下一个
-                    setTimeout(importNext, 200);
-                }
-            });
+            return false;
         };
 
-        importNext();
+        // 启动并发导入
+        const startConcurrentImports = () => {
+            // 如果已完成则退出
+            if (checkCompletion()) return;
+
+            // 启动新的导入任务直到达到并发限制或没有更多股票
+            while (activeRequests < concurrency && currentIndex < total) {
+                const stockCode = stockCodes[currentIndex];
+                currentIndex++;
+                activeRequests++;
+
+                updateProgressDisplay();
+
+                importStock(stockCode).then(result => {
+                    activeRequests--;
+
+                    if (!result.success) {
+                        failedStocks.push(result.stockCode + '(' + result.error + ')');
+                    }
+
+                    // 启动下一个任务
+                    startConcurrentImports();
+                });
+            }
+        };
+
+        // 开始并发导入
+        startConcurrentImports();
     }
 
     // 转换股票代码格式
